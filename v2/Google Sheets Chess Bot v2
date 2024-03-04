@@ -69,7 +69,7 @@
                             replace(
                             if(and(curpiece="p",move=ep),
                                 replace(replace(in,move,1,curpiece),move+8,1," "),
-                                replace(in,move,1,curpiece)
+                                replace(in,move,1,if(and(curpiece="p",ceiling(move/8)=1),"Q",curpiece))
                             ),pos,1," ")&"/"&curpiece&"/"&move)),
                         moves
                     ),
