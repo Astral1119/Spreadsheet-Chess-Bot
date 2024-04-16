@@ -1,0 +1,177 @@
+=ArrayFormula(
+    let(
+        fen,split(D11," "),
+        whitesturn,index(fen,2)="w",
+        castling,index(fen,3),
+        enpassant,index(fen,4),
+        ep,if(enpassant="-",9^9,code(enpassant)-96+8*(8-right(enpassant))),
+        halfmoves,index(fen,5),
+        timer,index(fen,6),
+        board,substitute(reduce(single(fen),sequence(8),lambda(a,b,substitute(a,b,rept(" ",b)))),"/",),
+        padding,"-------",
+        toppad,padding&padding&padding&"-",
+        flip,lambda(in,regexreplace(in,rept("(.)",8),"$8$7$6$5$4$3$2$1")),
+        boardtostring,lambda(in,toppad&join(,padding&in&padding)&toppad),
+        iswhite,lambda(in,switch(in,"#","#","-","-"," "," ",exact(in,upper(in)))),
+        getactive,lambda(in,(int(find("X",in)/22)-1)*8+mod(find("X",in),22)-7),
+        parse,lambda(pos,boardtostring(mid(if(ep="-",replace(board,pos,1,"X"),replace(replace(board,pos,1,"X"),ep,1,"#")),sequence(8,1,1,8),8))),
+
+        slide,lambda(in,dist,tdist,
+            let(str,index(regexextract(in,{"X((.{"&dist&"}[ #])*(.{"&dist&"}[\w-]))";"([\w-](.{"&dist&"}[ #])*(.{"&dist&"}))X"}),,1),
+                con,{iswhite(right(single(str)));iswhite(left(index(str,2)))},
+                n,len(str)/(dist+1)-if(con="-",1,con=true),
+                vstack(sequence(1,single(n),getactive(in)+tdist,tdist),sequence(1,index(n,2),getactive(in)-tdist,-tdist))
+            )),
+        step,lambda(in,dist,pcap,tdist,
+            let(str,index(regexextract(in,vstack("([\w #].{"&dist&"})X",if(pcap,tocol(,1),"X(.{"&dist&"}[\w #])"))),,1),
+                con,vstack(iswhite(left(single(str))),if(pcap,tocol(,1),iswhite(right(index(str,2))))),
+                n,if((con="#")+(false=con),1,if(true=con,,if(con="-",NA(),if(pcap,con<>" ",con=" ")))),
+                getactive(in)+if(n,,NA())+if(pcap,-tdist,{-tdist;tdist})
+            )),
+        pawnforward,lambda(in,down,
+            let(pos,getactive(in),
+                one,regexmatch(in,if(down,"X.{21} "," .{21}X")),
+                two,and(regexmatch(in,if(down,"X.{21} .{21} "," .{21} .{21}X")),ceiling(pos/8)=7),
+                if(one,if(down,sequence(1,one+two,pos+8,8),sequence(1,one+two,pos-8,-8)),NA())
+            )),
+        
+        bishop,lambda(pos,in,let(parsed,parse(pos,in),vstack(slide(parsed,22,9),slide(parsed,20,7)))),
+        rook,lambda(pos,in,let(parsed,parse(pos,in),vstack(slide(parsed,21,8),slide(parsed,0,1)))),
+        knight,lambda(pos,in,let(parsed,parse(pos,in),vstack(step(parsed,23,,10),step(parsed,19,,6),step(parsed,44,,17),step(parsed,42,,15)))),
+        pawn,lambda(pos,in,let(parsed,parse(pos,in),vstack(pawnforward(parsed,),step(parsed,20,1,7),step(parsed,22,1,9)))),
+        king,lambda(pos,in,let(parsed,parse(pos,in),vstack(step(parsed,20,,7),step(parsed,21,,8),step(parsed,22,,9),step(parsed,0,,1)))),
+        queen,lambda(pos,in,let(parsed,parse(pos,in),vstack(bishop(pos),rook(pos)))),
+
+        isattacked,lambda(pos,in,
+            or(iferror(vstack(
+                exact(mid(in,tocol(bishop(pos,in),3),1),{"b","q"}),
+                exact(mid(in,tocol(rook(pos,in),3),1),{"r","q"}),
+                exact(mid(in,tocol(knight(pos,in),3),1),"n"),
+                exact(mid(in,tocol(king(pos,in),3),1),"k"),
+                exact(mid(parse(pos,in),find("X",parse(pos,in))-{23,21},1),"p")
+            )))),
+        
+        generatemoves,lambda(in,pos,parse,
+            let(curpiece,mid(in,pos,1),
+                moves,tocol(
+                    if(or(curpiece=" ",not(iswhite(curpiece))),NA(),
+                    if(curpiece="b",bishop(pos,in),
+                    if(curpiece="r",rook(pos,in),
+                    if(curpiece="n",knight(pos,in),
+                    if(curpiece="q",queen(pos,in),
+                    if(curpiece="p",pawn(pos,in),
+                    if(curpiece="k",king(pos,in),NA()))))))),3),
+                if(rows(moves),
+                    if(parse,
+                        map(moves,lambda(move,
+                            replace(
+                            if(and(curpiece="p",move=ep),
+                                replace(replace(in,move,1,curpiece),move+8,1," "),
+                                replace(in,move,1,curpiece)
+                            ),pos,1," ")&"/"&curpiece&"/"&move)),
+                        moves
+                    ),
+                    NA()
+                )
+            )
+        ),
+
+        getrank,lambda(pos,
+            9-ceiling(pos/8)
+        ),
+        getfile,lambda(pos,
+            switch(mod(pos,8),0,8,mod(pos,8))
+        ),
+
+        nearking,lambda(pos,multiplier,
+            let(kpos,find("K",board),
+                (7-abs(getrank(pos)-getrank(kpos)))*(7-abs(getfile(pos)-getfile(kpos)))/10*multiplier
+            )
+        ),
+        iscenter,lambda(pos,width,multiplier,
+            and(6-width<=getrank(pos),getrank(pos)<=width+1,6-width<=getfile(pos),getfile(pos)<=width+1)*multiplier
+        ),
+        attacks,lambda(pos,in,multiplier,
+            let(curpiece,mid(board,pos,1),
+                num,countif(generatemoves(in,pos,),"<> "),
+                if(or(curpiece={"k","p"," "}),,
+                    if(curpiece="n",num,num/4*multiplier)
+                )
+            )
+        ),
+
+        getatkval,lambda(moves,con,
+            vlookup(filter(moves,regexmatch(moves,con)),piecetable,2,)
+        ),
+
+        minatkval,lambda(pos,in,
+            iferror(min(iferror(vstack(
+                getatkval(mid(in,tocol(bishop(pos),3),1),"[bq]"),
+                getatkval(mid(in,tocol(rook(pos),3),1),"[rq]"),
+                getatkval(mid(in,tocol(knight(pos),3),1),"n"),
+                getatkval(mid(in,tocol(king(pos),3),1),"k"),
+                getatkval(mid(parse(pos),find("X",parse(pos))-{23,21},1),"p")
+            ))),0)
+        ),
+
+
+        pieceeval,lambda(in,pcount,pos,
+            let(curpiece,mid(in,pos,1),
+                if(or(exact(curpiece,"K"),exact(curpiece,"Q")),if(isattacked(pos,in),if(exact(curpiece,"K"),-9^9,-400)))+
+                if(curpiece=" ",,
+                if(iswhite(curpiece),1,-1)*
+                (if(pcount>12,
+                    if(curpiece="b",300+iscenter(pos,4,4),
+                    if(curpiece="r",500+iscenter(pos,4,-2),
+                    if(curpiece="n",300+iscenter(pos,4,5),
+                    if(curpiece="q",900+iscenter(pos,5,3),
+                    if(curpiece="p",100+abs(getrank(pos)-(7*not(iswhite(curpiece))))*4+iscenter(pos,4,3)+nearking(pos,if(timer<2,-4,6)),
+                    if(curpiece="k",iscenter(pos,4,-4),NA())))))),
+
+                    if(curpiece="b",310+iscenter(pos,4,2),
+                    if(curpiece="r",500+iscenter(pos,4,-3),
+                    if(curpiece="n",300+iscenter(pos,4,5),
+                    if(curpiece="q",900+iscenter(pos,5,4),
+                    if(curpiece="p",110+abs(getrank(pos)-(7*not(iswhite(curpiece))))*5+nearking(pos,7),
+                    if(curpiece="k",iscenter(pos,4,4),NA()))))))
+                )+abs(getrank(pos)-(7*not(iswhite(curpiece)))))
+                )
+            )
+        ),
+
+        evaluate,lambda(in,
+            let(pcount,len(substitute(in," ",)),
+                reduce(,sequence(64),lambda(total,pos,total+pieceeval(in,pcount,pos)))
+            )
+        ),
+
+        piecetable,{"p",100;"n",300;"b",325;"r",500;"q",900;" ",0;"K",900},
+
+        issafe,lambda(move,
+            let(boardstate,single(split(move,"/")),
+                curpiece,index(split(move,"/"),2),
+                movedto,index(split(move,"/"),3),
+                oldpiece,mid(board,movedto,1),
+                and(or(vlookup(oldpiece,piecetable,2,)>=vlookup(curpiece,piecetable,2,),not(isattacked(movedto,boardstate))),not(isattacked(find("K",board),boardstate)))
+            )
+        ),
+
+        safemoves,lambda(moves,
+            ifna(filter(moves,map(moves,lambda(move,issafe(move)))),moves)
+        ),
+        
+        rankmoves,lambda(moves,
+            sort(map(moves,lambda(move,{move,evaluate(move)})),2,)
+        ),
+
+        movesfromfen,lambda(
+            tocol(map(sequence(64),lambda(square,torow(generatemoves(board,square,1)))),3)
+        ),
+
+        unwrap,lambda(in,
+            wraprows(mid(in,sequence(len(in)),1),8)
+        ),
+
+        rankmoves(safemoves(movesfromfen()))
+    )
+)
